@@ -228,7 +228,7 @@ int thread_fn(void* v)
     //int i;
     int x,y,i;
     char hasChanged = 0;
-
+	unsigned char r, g, b, gray;
     unsigned char *screenBufferCompressed;
     char bufferByte = 0;
     char sendBuffer[1 + (1+50+1)*1 + 1];
