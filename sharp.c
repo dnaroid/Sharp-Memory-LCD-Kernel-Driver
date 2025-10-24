@@ -35,7 +35,7 @@ int lcdWidth = LCDWIDTH;
 int lcdHeight = 240;
 int fpsCounter;
 
-static int seuil = 4; // Threshold for grayscale to monochrome conversion
+static int seuil = 128; // Threshold for RGB to monochrome conversion
 module_param(seuil, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP );
 
 char vcomState;
@@ -67,10 +67,10 @@ static struct fb_var_screeninfo vfb_default = {
     .yres =     240,
     .xres_virtual = 400,
     .yres_virtual = 240,
-    .bits_per_pixel = 8,  // 8 bpp for fbcon compatibility
-    .grayscale = 1,
-    .red =      { 0, 8, 0 },
-    .green =    { 0, 8, 0 },
+    .bits_per_pixel = 24,  // 24 bpp RGB for full color support
+    .grayscale = 0,  // RGB mode, not grayscale
+    .red =      { 16, 8, 0 },  // RGB888 format
+    .green =    { 8, 8, 0 },
     .blue =     { 0, 8, 0 },
     .activate = FB_ACTIVATE_NOW,
     .height =   -1,  // Physical height unknown
@@ -88,47 +88,21 @@ static struct fb_var_screeninfo vfb_default = {
 static struct fb_fix_screeninfo vfb_fix = {
     .id =       "Sharp FB",
     .type =     FB_TYPE_PACKED_PIXELS,
-    .line_length = 400,  // 400 bytes per line (400 pixels × 1 byte)
+    .line_length = 1200,  // 400 pixels × 3 bytes (RGB)
     .xpanstep = 0,
     .ypanstep = 0,
     .ywrapstep =    0,
-    .visual =	FB_VISUAL_PSEUDOCOLOR,  // Pseudocolor for 8bpp grayscale
+    .visual =	FB_VISUAL_TRUECOLOR,  // Truecolor for RGB
     .accel =    FB_ACCEL_NONE,
 };
-
-static int vfb_setcolreg(unsigned regno, unsigned red, unsigned green,
-                         unsigned blue, unsigned transp,
-                         struct fb_info *info)
-{
-    if (regno >= 256)
-        return -EINVAL;
-
-    // Convert to 8-bit
-    unsigned char r = red >> 8;
-    unsigned char g = green >> 8;
-    unsigned char b = blue >> 8;
-    
-    // Use maximum component for better visibility of all colors
-    unsigned char gray = r;
-    if (g > gray) gray = g;
-    if (b > gray) gray = b;
-    
-    // Store in palette (convert back to 16-bit)
-    info->cmap.red[regno] = gray * 257;
-    info->cmap.green[regno] = gray * 257;
-    info->cmap.blue[regno] = gray * 257;
-    
-    return 0;
-}
 
 static struct fb_ops vfb_ops = {
     .fb_read        = fb_sys_read,
     .fb_write       = fb_sys_write,
-    .fb_setcolreg   = vfb_setcolreg,  // ADD THIS
     .fb_fillrect    = sys_fillrect,
     .fb_copyarea    = sys_copyarea,
     .fb_imageblit   = sys_imageblit,
-    .fb_mmap        = vfb_mmap,
+    .fb_mmap    = vfb_mmap,
 };
 
 static struct task_struct *thread1;
@@ -252,7 +226,7 @@ int fpsThreadFunction(void* v)
 int thread_fn(void* v) 
 {
     int x,y,i;
-    char pixel;
+    unsigned char r, g, b, gray;
     char hasChanged = 0;
 
     unsigned char *screenBufferCompressed;
@@ -298,13 +272,26 @@ int thread_fn(void* v)
                 
                 for(i=0 ; i<8 ; i++ )
                 {
-                    // Read pixel from framebuffer (8bpp grayscale)
-                    // Offset calculation: y * line_length + x_position
-                    unsigned long offset = (y * info->fix.line_length) + (x * 8 + i);
-                    pixel = ioread8((void*)((uintptr_t)info->fix.smem_start + offset));
+                    // Read RGB pixel (24bpp = 3 bytes per pixel)
+                    // Offset: y * line_length + pixel_x * 3
+                    unsigned long offset = (y * info->fix.line_length) + ((x * 8 + i) * 3);
+                    
+                    // Read all 3 color channels (BGR order in memory)
+                    b = ioread8((void*)((uintptr_t)info->fix.smem_start + offset));
+                    g = ioread8((void*)((uintptr_t)info->fix.smem_start + offset + 1));
+                    r = ioread8((void*)((uintptr_t)info->fix.smem_start + offset + 2));
+                    
+                    // Convert RGB to grayscale using max() method
+                    // This preserves color intensity better than weighted average
+                    gray = r;
+                    if (g > gray) gray = g;
+                    if (b > gray) gray = b;
+                    
+                    // Alternative: standard weighted average (uncomment if preferred)
+                    // gray = (r * 77 + g * 151 + b * 28) >> 8;
 
                     // Threshold conversion: grayscale to monochrome
-                    if(pixel >= seuil)
+                    if(gray >= seuil)
                     {
                         // Set bit (7-i) to 1 (white pixel)
                         bufferByte |=  (1 << (7 - i)); 
@@ -347,7 +334,6 @@ static int sharp_probe(struct spi_device *spi)
     char thread_vcom[] = "vcom";
     char thread_fps[] = "fpsThread";
     int retval;
-    int i;
 
 	screen = devm_kzalloc(&spi->dev, sizeof(*screen), GFP_KERNEL);
 	if (!screen)
@@ -399,7 +385,7 @@ static int sharp_probe(struct spi_device *spi)
 
     memset(videomemory, 0, videomemorysize);
 
-    info = framebuffer_alloc(sizeof(u32) * 256, &spi->dev);
+    info = framebuffer_alloc(0, &spi->dev);  // No palette needed for truecolor
     if (!info)
         goto err;
 
@@ -413,26 +399,16 @@ static int sharp_probe(struct spi_device *spi)
     info->par = NULL;
     info->flags = FBINFO_FLAG_DEFAULT;
 
-    retval = fb_alloc_cmap(&info->cmap, 256, 0);  // 256 colors for 8bpp
-    if (retval < 0)
-        goto err1;
-
-    // Initialize grayscale palette
-    for (i = 0; i < 256; i++) {
-        info->cmap.red[i] = i * 257;    // 0-65535 range (i * 65535 / 255)
-        info->cmap.green[i] = i * 257;
-        info->cmap.blue[i] = i * 257;
-    }
+    // No colormap allocation needed for truecolor mode
 
     retval = register_framebuffer(info);
     if (retval < 0)
-        goto err2;
+        goto err1;
 
     fb_info(info, "Sharp Memory LCD framebuffer device, using %ldK of video memory\n",
         videomemorysize >> 10);
     return 0;
-err2:
-    fb_dealloc_cmap(&info->cmap);
+
 err1:
     framebuffer_release(info);
 err:
@@ -445,7 +421,6 @@ static void sharp_remove(struct spi_device *spi)
 {
     if (info) {
         unregister_framebuffer(info);
-        fb_dealloc_cmap(&info->cmap);
         framebuffer_release(info);
     }
     
