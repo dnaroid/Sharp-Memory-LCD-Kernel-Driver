@@ -276,7 +276,7 @@ int thread_fn(void* v)
                     unsigned long offset = (y * info->fix.line_length) + ((x * 8 + i) * 3);
 					b = ioread8((void*)((uintptr_t)info->fix.smem_start + offset));
 					g = ioread8((void*)((uintptr_t)info->fix.smem_start + offset + 1));
-					r = ioread8((void*)((uintptr_t)info->fix.smem_start + offset + 2)
+					r = ioread8((void*)((uintptr_t)info->fix.smem_start + offset + 2);
 
                     gray = r;
 					if (g > gray) gray = g;
