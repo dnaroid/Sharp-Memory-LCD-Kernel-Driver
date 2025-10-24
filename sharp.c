@@ -228,7 +228,7 @@ int thread_fn(void* v)
     //int i;
     int x,y,i;
     char hasChanged = 0;
-	unsigned char r, g, b, gray;
+	unsigned char pixel; //r, g, b, gray;
     unsigned char *screenBufferCompressed;
     char bufferByte = 0;
     char sendBuffer[1 + (1+50+1)*1 + 1];
@@ -272,14 +272,21 @@ int thread_fn(void* v)
             {
                 for(i=0 ; i<8 ; i++ )
                 {
-                    unsigned long offset = (y * info->fix.line_length) + ((x * 8 + i) * 3);
-					b = ioread8((void*)((uintptr_t)info->fix.smem_start + offset));
-					g = ioread8((void*)((uintptr_t)info->fix.smem_start + offset + 1));
-					r = ioread8((void*)((uintptr_t)info->fix.smem_start + offset + 2));
+     //                unsigned long offset = (y * info->fix.line_length) + ((x * 8 + i) * 3);
+					// b = ioread8((void*)((uintptr_t)info->fix.smem_start + offset));
+					// g = ioread8((void*)((uintptr_t)info->fix.smem_start + offset + 1));
+					// r = ioread8((void*)((uintptr_t)info->fix.smem_start + offset + 2));
 
-                    gray = r;
-					if (g > gray) gray = g;
-					if (b > gray) gray = b;
+     //                gray = r;
+					// if (g > gray) gray = g;
+					// if (b > gray) gray = b;
+
+					unsigned long offset = (y * info->fix.line_length) + ((x * 8 + i) * 3);
+					pixel = ioread8((void*)((uintptr_t)info->fix.smem_start + offset));
+					
+					if(pixel >= seuil) {
+					    bufferByte |= (1 << (7 - i));
+					}
 					
 					if(gray >= seuil)
                     {
