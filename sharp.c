@@ -96,13 +96,39 @@ static struct fb_fix_screeninfo vfb_fix = {
     .accel =    FB_ACCEL_NONE,
 };
 
+static int vfb_setcolreg(unsigned regno, unsigned red, unsigned green,
+                         unsigned blue, unsigned transp,
+                         struct fb_info *info)
+{
+    if (regno >= 256)
+        return -EINVAL;
+
+    // Convert to 8-bit
+    unsigned char r = red >> 8;
+    unsigned char g = green >> 8;
+    unsigned char b = blue >> 8;
+    
+    // Use maximum component for better visibility of all colors
+    unsigned char gray = r;
+    if (g > gray) gray = g;
+    if (b > gray) gray = b;
+    
+    // Store in palette (convert back to 16-bit)
+    info->cmap.red[regno] = gray * 257;
+    info->cmap.green[regno] = gray * 257;
+    info->cmap.blue[regno] = gray * 257;
+    
+    return 0;
+}
+
 static struct fb_ops vfb_ops = {
     .fb_read        = fb_sys_read,
     .fb_write       = fb_sys_write,
+    .fb_setcolreg   = vfb_setcolreg,  // ADD THIS
     .fb_fillrect    = sys_fillrect,
     .fb_copyarea    = sys_copyarea,
     .fb_imageblit   = sys_imageblit,
-    .fb_mmap    = vfb_mmap,
+    .fb_mmap        = vfb_mmap,
 };
 
 static struct task_struct *thread1;
