@@ -272,19 +272,11 @@ int thread_fn(void* v)
             {
                 for(i=0 ; i<8 ; i++ )
                 {
-     //                unsigned long offset = (y * info->fix.line_length) + ((x * 8 + i) * 3);
-					// b = ioread8((void*)((uintptr_t)info->fix.smem_start + offset));
-					// g = ioread8((void*)((uintptr_t)info->fix.smem_start + offset + 1));
-					// r = ioread8((void*)((uintptr_t)info->fix.smem_start + offset + 2));
-
-     //                gray = r;
-					// if (g > gray) gray = g;
-					// if (b > gray) gray = b;
-
 					unsigned long offset = (y * info->fix.line_length) + ((x * 8 + i) * 3);
 					pixel = ioread8((void*)((uintptr_t)info->fix.smem_start + offset));
 					
-					if(pixel >= seuil) {
+					if(pixel >= seuil) 
+					{
                         // passe le bit 7 - i a 1
                         bufferByte |=  (1 << (7 - i)); 
                     }
