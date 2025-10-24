@@ -285,7 +285,6 @@ int thread_fn(void* v)
 					pixel = ioread8((void*)((uintptr_t)info->fix.smem_start + offset));
 					
 					if(pixel >= seuil) {
-                    {
                         // passe le bit 7 - i a 1
                         bufferByte |=  (1 << (7 - i)); 
                     }
