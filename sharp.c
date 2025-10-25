@@ -35,7 +35,7 @@ int lcdWidth = LCDWIDTH;
 int lcdHeight = 240;
 int fpsCounter;
 
-static int seuil = 4; // Indispensable pour fbcon
+static int seuil = 4; // Threshold for grayscale to monochrome conversion
 module_param(seuil, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP );
 
 char vcomState;
@@ -225,41 +225,39 @@ int fpsThreadFunction(void* v)
 
 int thread_fn(void* v) 
 {
-    //int i;
     int x,y,i;
+    char pixel;
     char hasChanged = 0;
-	unsigned char r, g, b, gray;
+
     unsigned char *screenBufferCompressed;
     char bufferByte = 0;
     char sendBuffer[1 + (1+50+1)*1 + 1];
 
     clearDisplay();
 
-    //unsigned char *screenBufferCompressed;
-    screenBufferCompressed = vzalloc((50+4)*240*sizeof(unsigned char)); 	//plante si on met moins
+    // Allocate compressed screen buffer (54 bytes per line × 240 lines)
+    screenBufferCompressed = vzalloc((50+4)*240*sizeof(unsigned char));
 
-    //char bufferByte = 0;
-    //char sendBuffer[1 + (1+50+1)*1 + 1];
     sendBuffer[0] = commandByte;
     sendBuffer[52] = paddingByte;
     sendBuffer[1 + 52] = paddingByte;
 
-    // Init screen to black
+    // Initialize screen to black
     for(y=0 ; y < 240 ; y++)
     {
 	gpio_set_value(SCS, 1);
 	screenBufferCompressed[y*(50+4)] = commandByte;
-	screenBufferCompressed[y*(50+4) + 1] = reverseByte(y+1); //sharp display lines are indexed from 1
+	screenBufferCompressed[y*(50+4) + 1] = reverseByte(y+1); // Sharp display lines are indexed from 1
 	screenBufferCompressed[y*(50+4) + 52] = paddingByte;
 	screenBufferCompressed[y*(50+4) + 53] = paddingByte;
 
-	//screenBufferCompressed is all to 0 by default (vzalloc)
+	// screenBufferCompressed is all zeros by default (vzalloc)
 
 	spi_write(screen->spi, (const u8 *)(screenBufferCompressed+(y*(50+4))), 54);
 	gpio_set_value(SCS, 0);
     }
 
-    // Main loop
+    // Main display update loop
     while (!kthread_should_stop()) 
     {
         msleep(50);
@@ -270,28 +268,16 @@ int thread_fn(void* v)
 
             for(x=0 ; x<50 ; x++)
             {
+                bufferByte = 0;  // Reset byte for each group of 8 pixels
+                
                 for(i=0 ; i<8 ; i++ )
                 {
-					// Read RGB pixel (24bpp = 3 bytes per pixel)
-                    // Offset: y * line_length + pixel_x * 3
+                    // Read pixel from framebuffer using proper line_length
+                    // This fixes line garbage when font changes
                     unsigned long offset = (y * info->fix.line_length) + ((x * 8 + i) * 3);
-                    
-                    // Read all 3 color channels (BGR order in memory)
-                    b = ioread8((void*)((uintptr_t)info->fix.smem_start + offset));
-                    g = ioread8((void*)((uintptr_t)info->fix.smem_start + offset + 1));
-                    r = ioread8((void*)((uintptr_t)info->fix.smem_start + offset + 2));
-                    
-                    // Convert RGB to grayscale using max() method
-                    // This preserves color intensity better than weighted average
-                    gray = r;
-                    if (g > gray) gray = g;
-                    if (b > gray) gray = b;
-                    
-                    // Alternative: standard weighted average (uncomment if preferred)
-                    // gray = (r * 77 + g * 151 + b * 28) >> 8;
+                    pixel = ioread8((void*)((uintptr_t)info->fix.smem_start + offset));
 
-                    // Threshold conversion: grayscale to monochrome
-                    if(gray >= seuil)
+                    if(pixel >= seuil)
                     {
                         // Set bit (7-i) to 1 (white pixel)
                         bufferByte |=  (1 << (7 - i)); 
@@ -302,6 +288,7 @@ int thread_fn(void* v)
                         bufferByte &=  ~(1 << (7 - i)); 
                     }
                 }
+                
                 if(!hasChanged && (screenBufferCompressed[x + 2 + y*(50+4)] != bufferByte))
                 {
                     hasChanged = 1;
@@ -312,7 +299,7 @@ int thread_fn(void* v)
             if(hasChanged)
             {
                 gpio_set_value(SCS, 1);
-                //la memoire allouee avec vzalloc semble trop lente...
+                // Copy to send buffer (vzalloc memory seems too slow for direct SPI)
                 memcpy(sendBuffer, screenBufferCompressed+y*(50+4), 54);
                 spi_write(screen->spi, (const u8 *)(sendBuffer), 54);
                 gpio_set_value(SCS, 0);
@@ -321,6 +308,7 @@ int thread_fn(void* v)
         }
     }
 
+    vfree(screenBufferCompressed);
     return 0;
 }
 
@@ -369,7 +357,7 @@ static int sharp_probe(struct spi_device *spi)
     gpio_request(DISP, "DISP");
     gpio_direction_output(DISP, 1);
 
-    // SCREEN PART
+    // FRAMEBUFFER INITIALIZATION
     retval = -ENOMEM;
 
     if (!(videomemory = rvmalloc(videomemorysize)))
@@ -409,21 +397,32 @@ err1:
 err:
     rvfree(videomemory, videomemorysize);
 
-    return 0;
+    return retval;
 }
 
 static void sharp_remove(struct spi_device *spi)
 {
-        if (info) {
-                unregister_framebuffer(info);
-                fb_dealloc_cmap(&info->cmap);
-                framebuffer_release(info);
-        }
-	kthread_stop(thread1);
-	kthread_stop(fpsThread);
-    kthread_stop(vcomToggleThread);
-	printk(KERN_CRIT "out of screen module");
-	//return 0;
+    if (info) {
+        unregister_framebuffer(info);
+        fb_dealloc_cmap(&info->cmap);
+        framebuffer_release(info);
+    }
+    
+    if (thread1)
+        kthread_stop(thread1);
+    if (fpsThread)
+        kthread_stop(fpsThread);
+    if (vcomToggleThread)
+        kthread_stop(vcomToggleThread);
+    
+    gpio_free(SCS);
+    gpio_free(VCOM);
+    gpio_free(DISP);
+    
+    if (videomemory)
+        rvfree(videomemory, videomemorysize);
+    
+    printk(KERN_CRIT "out of screen module");
 }
 
 static struct spi_driver sharp_driver = {
