@@ -277,7 +277,8 @@ int thread_fn(void* v)
                     unsigned long offset = (y * info->fix.line_length) + ((x * 8 + i) * 3);
                     pixel = ioread8((void*)((uintptr_t)info->fix.smem_start + offset));
 
-                    if(pixel >= seuil)
+                    //if(pixel >= seuil)
+                    if(pixel)
                     {
                         // Set bit (7-i) to 1 (white pixel)
                         bufferByte |=  (1 << (7 - i)); 
@@ -386,6 +387,8 @@ static int sharp_probe(struct spi_device *spi)
     retval = register_framebuffer(info);
     if (retval < 0)
         goto err2;
+
+    printk(KERN_INFO "Sharp LCD driver built on %s at %s\n", __DATE__, __TIME__);
 
     fb_info(info, "Virtual frame buffer device, using %ldK of video memory\n",
         videomemorysize >> 10);
