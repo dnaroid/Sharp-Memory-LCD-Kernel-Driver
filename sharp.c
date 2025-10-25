@@ -228,7 +228,7 @@ int thread_fn(void* v)
     //int i;
     int x,y,i;
     char hasChanged = 0;
-	unsigned char pixel; //r, g, b, gray;
+	unsigned char r, g, b, gray;
     unsigned char *screenBufferCompressed;
     char bufferByte = 0;
     char sendBuffer[1 + (1+50+1)*1 + 1];
@@ -272,17 +272,33 @@ int thread_fn(void* v)
             {
                 for(i=0 ; i<8 ; i++ )
                 {
-					unsigned long offset = (y * info->fix.line_length) + ((x * 8 + i) * 3);
-					pixel = ioread8((void*)((uintptr_t)info->fix.smem_start + offset));
-					
-					if(pixel >= seuil) 
-					{
-                        // passe le bit 7 - i a 1
+					// Read RGB pixel (24bpp = 3 bytes per pixel)
+                    // Offset: y * line_length + pixel_x * 3
+                    unsigned long offset = (y * info->fix.line_length) + ((x * 8 + i) * 3);
+                    
+                    // Read all 3 color channels (BGR order in memory)
+                    b = ioread8((void*)((uintptr_t)info->fix.smem_start + offset));
+                    g = ioread8((void*)((uintptr_t)info->fix.smem_start + offset + 1));
+                    r = ioread8((void*)((uintptr_t)info->fix.smem_start + offset + 2));
+                    
+                    // Convert RGB to grayscale using max() method
+                    // This preserves color intensity better than weighted average
+                    gray = r;
+                    if (g > gray) gray = g;
+                    if (b > gray) gray = b;
+                    
+                    // Alternative: standard weighted average (uncomment if preferred)
+                    // gray = (r * 77 + g * 151 + b * 28) >> 8;
+
+                    // Threshold conversion: grayscale to monochrome
+                    if(gray >= seuil)
+                    {
+                        // Set bit (7-i) to 1 (white pixel)
                         bufferByte |=  (1 << (7 - i)); 
                     }
                     else
                     {
-                        // passe le bit 7 - i a 0
+                        // Set bit (7-i) to 0 (black pixel)
                         bufferByte &=  ~(1 << (7 - i)); 
                     }
                 }
