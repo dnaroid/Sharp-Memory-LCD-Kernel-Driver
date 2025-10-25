@@ -19,6 +19,8 @@
 #include <linux/gpio.h>
 #include <linux/uaccess.h>
 
+#define DRIVER_VERSION "1.0.1"
+
 #define LCDWIDTH 400
 #define VIDEOMEMSIZE    (1*1024*1024)   /* 1 MB */
 
@@ -388,7 +390,7 @@ static int sharp_probe(struct spi_device *spi)
     if (retval < 0)
         goto err2;
 
-    printk(KERN_INFO "Sharp LCD driver built on %s at %s\n", __DATE__, __TIME__);
+    printk(KERN_INFO "Sharp LCD driver v%s\n", DRIVER_VERSION);
 
     fb_info(info, "Virtual frame buffer device, using %ldK of video memory\n",
         videomemorysize >> 10);
