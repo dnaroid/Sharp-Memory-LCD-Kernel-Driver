@@ -259,6 +259,11 @@ int thread_fn(void* v)
 	gpio_set_value(SCS, 0);
     }
 
+	printk(KERN_INFO "Sharp: line_length=%d, bpp=%d, visual=%d\n", 
+           info->fix.line_length, 
+           info->var.bits_per_pixel,
+           info->fix.visual);
+
     // Main display update loop
     while (!kthread_should_stop()) 
     {
